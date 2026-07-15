@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=LightMD Viewer
+Comment=Visor Markdown ligero
+Exec=python3 REEMPLAZAR_RUTA/lightmd_viewer.py %f
+Icon=text-x-markdown
+Terminal=false
+Type=Application
+MimeType=text/markdown;text/plain;
+Categories=Utility;TextEditor;
