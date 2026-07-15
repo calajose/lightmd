@@ -23,7 +23,43 @@ En antiX/Debian/Ubuntu:
 sudo apt install python3 python3-tk
 ```
 
-## Instalación
+## Instalación para usuarios finales (Linux)
+
+### Instalar
+
+El instalador crea un entorno virtual privado en
+`~/.local/share/lightmd/venv`, instala LightMD dentro y añade un lanzador
+al menú de aplicaciones. No requiere permisos de root.
+
+```bash
+git clone https://github.com/jmcala/lightmd.git
+cd lightmd
+bash scripts/install_linux.sh
+```
+
+Tras la instalación, LightMD aparece en el menú de aplicaciones y los
+archivos `.md` se abren con él al hacer doble clic.
+
+### Actualizar
+
+```bash
+cd lightmd
+git pull
+bash scripts/install_linux.sh
+```
+
+El instalador es idempotente: se puede ejecutar varias veces para
+actualizar la instalación.
+
+### Desinstalar
+
+```bash
+bash scripts/uninstall_linux.sh
+```
+
+Elimina el entorno virtual, el lanzador y el icono.
+
+## Instalación para desarrolladores
 
 ### Desde el código fuente
 
@@ -33,7 +69,7 @@ cd lightmd
 pip install .
 ```
 
-### Instalación en editable (para desarrollo)
+### Instalación en editable
 
 ```bash
 pip install -e .
@@ -65,16 +101,6 @@ El script original también sigue funcionando:
 
 ```bash
 ./lightmd_viewer.py README.md
-```
-
-## Asociación con archivos Markdown en Linux
-
-Tras instalar, copia el lanzador de escritorio:
-
-```bash
-cp src/lightmd/resources/lightmd.desktop ~/.local/share/applications/
-update-desktop-database ~/.local/share/applications
-xdg-mime default lightmd.desktop text/markdown
 ```
 
 ## Ejecutar tests

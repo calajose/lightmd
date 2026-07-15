@@ -45,9 +45,13 @@ lightmd/
 │   ├── __main__.py         # python -m lightmd
 │   ├── cli.py              # entry point de consola (argparse)
 │   ├── viewer.py           # GUI Tkinter + render Markdown actual
-│   ├── parser.py           # (PLANIFICADO) parseo Markdown puro y testeable
+│   ├── parser.py           # parseo Markdown puro y testeable
 │   └── resources/
-│       └── lightmd.desktop # lanzador .desktop empaquetado
+│       ├── lightmd.desktop # lanzador .desktop empaquetado
+│       └── lightmd.png     # icono de la aplicación
+├── scripts/
+│   ├── install_linux.sh    # instalador de usuario (venv + lanzador)
+│   └── uninstall_linux.sh  # desinstalador
 ├── tests/
 │   └── test_viewer.py      # pruebas de regex y CLI sin Tk
 ├── lightmd_viewer.py       # shim de compatibilidad heredado
@@ -90,6 +94,7 @@ lightmd/
 ### `resources/`
 - Archivos de datos empaquetados con setuptools (`[tool.setuptools.package-data]`).
 - `lightmd.desktop`: lanzador Freedesktop con `Exec=lightmd %f`.
+- `lightmd.png`: icono de la aplicación.
 
 ## Estilo de código
 
