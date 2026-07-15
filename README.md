@@ -2,12 +2,12 @@
 
 Visor Markdown ligero hecho con Python y Tkinter.
 
-## Funciones actuales
+## Funciones
 
-- Apertura de archivos `.md`, `.markdown` y `.txt`.
-- Encabezados, listas, citas y bloques de código.
+- Apertura de archivos `.md`, `.markdown`, `.mdown`, `.mkd` y `.txt`.
+- Encabezados, listas (ordenadas y no ordenadas), tareas, citas y bloques de código.
 - Negrita, cursiva, código en línea y enlaces.
-- Modo claro y oscuro.
+- Modo claro y oscuro (`Ctrl+D`).
 - Búsqueda con `Ctrl+F`.
 - Recarga con `F5`.
 - Apertura de un archivo desde la línea de comandos.
@@ -17,56 +17,73 @@ Visor Markdown ligero hecho con Python y Tkinter.
 - Python 3.8 o superior.
 - Tkinter.
 
-En antiX/Debian:
+En antiX/Debian/Ubuntu:
 
 ```bash
 sudo apt install python3 python3-tk
 ```
 
-## Ejecución
+## Instalación
+
+### Desde el código fuente
 
 ```bash
-python3 lightmd_viewer.py
+git clone https://github.com/jmcala/lightmd.git
+cd lightmd
+pip install .
 ```
 
-Abrir directamente un archivo:
+### Instalación en editable (para desarrollo)
 
 ```bash
-python3 lightmd_viewer.py README.md
+pip install -e .
 ```
 
-## Hacerlo ejecutable
+### Con pipx (entorno aislado)
 
 ```bash
-chmod +x lightmd_viewer.py
+pipx install .
+```
+
+## Uso
+
+```bash
+# Abrir el visor
+lightmd
+
+# Abrir un archivo
+lightmd README.md
+
+# O usando el módulo
+python -m lightmd README.md
+
+# Versión
+lightmd --version
+```
+
+El script original también sigue funcionando:
+
+```bash
 ./lightmd_viewer.py README.md
 ```
 
 ## Asociación con archivos Markdown en Linux
 
-Puedes crear este lanzador:
-
-```ini
-[Desktop Entry]
-Name=LightMD Viewer
-Comment=Visor Markdown ligero
-Exec=python3 /ruta/completa/lightmd_viewer.py %f
-Icon=text-x-markdown
-Terminal=false
-Type=Application
-MimeType=text/markdown;text/plain;
-Categories=Utility;TextEditor;
-```
-
-Guárdalo como:
-
-```text
-~/.local/share/applications/lightmd-viewer.desktop
-```
-
-Después ejecuta:
+Tras instalar, copia el lanzador de escritorio:
 
 ```bash
+cp src/lightmd/resources/lightmd.desktop ~/.local/share/applications/
 update-desktop-database ~/.local/share/applications
-xdg-mime default lightmd-viewer.desktop text/markdown
+xdg-mime default lightmd.desktop text/markdown
 ```
+
+## Ejecutar tests
+
+```bash
+pip install pytest
+pytest
+```
+
+## Licencia
+
+MIT

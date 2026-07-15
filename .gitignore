@@ -10,3 +10,5 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+*.egg-info/
+.pytest_cache/

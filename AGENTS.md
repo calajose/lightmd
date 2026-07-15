@@ -77,15 +77,15 @@ lightmd/
 - La prioridad a futuro es extraer el parseo a `parser.py` para que sea
   testeable sin Tkinter.
 
-### `parser.py` — (PLANIFICADO)
+### `parser.py`
 - Módulo de parseo Markdown puro, sin dependencia de Tkinter.
-- Recibirá texto Markdown como `str` y devolverá estructuras de datos
-  (nodos, tokens) que `viewer.py` consumirá para insertar en el widget
-  Text.
-- Las funciones serán puramente testeables con pytest sin display.
-- **Hoy no existe:** el parseo sigue en `viewer.py`. Cualquier agente
-  que quiera refactorizarlo debe hacerlo sin romper la funcionalidad
-  existente y manteniendo todos los tests en verde.
+- Recibe texto Markdown como `str` y devuelve `List[Block]` de tipos
+  `dataclass` sencillos (`Block`, `InlineNode`).
+- `parse_markdown()` es la función principal; `parse_inline()` procesa
+  tokens en línea (negrita, cursiva, código, enlaces).
+- Regex precompiladas como constantes de módulo (`RE_HR`, `RE_HEADING`,
+  `RE_QUOTE`, `RE_TASK`, `RE_UNORDERED`, `RE_ORDERED`, `RE_TOKEN`).
+- Puramente testeable con pytest sin display. No importa Tkinter.
 
 ### `resources/`
 - Archivos de datos empaquetados con setuptools (`[tool.setuptools.package-data]`).
