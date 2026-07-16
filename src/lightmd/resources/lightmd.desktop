@@ -2,8 +2,9 @@
 Name=LightMD Viewer
 Comment=Visor Markdown ligero
 Exec=lightmd %f
-Icon=text-x-markdown
+Icon=lightmd
 Terminal=false
 Type=Application
 MimeType=text/markdown;text/plain;
+StartupWMClass=Lightmd
 Categories=Utility;TextEditor;

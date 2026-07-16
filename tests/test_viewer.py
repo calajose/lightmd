@@ -22,7 +22,7 @@ from lightmd.viewer import _cap_cell, _column_width, MAX_COL_PX
 # ── Import / version ─────────────────────────────────────────────
 
 def test_version() -> None:
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.2.1"
 
 
 # ── Regex de bloque ──────────────────────────────────────────────

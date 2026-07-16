@@ -10,17 +10,28 @@ and this project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-16
+
 ### Added
 
-- Linux installer script (`scripts/install_linux.sh`) — creates a private
-  virtual environment, installs LightMD, and places a desktop launcher
-  with MIME association.
-- Linux uninstaller script (`scripts/uninstall_linux.sh`).
-- Application icon (`src/lightmd/resources/lightmd.png`).
-- Soporte de tablas Markdown: parseo y renderizado como texto.
+- Icono de la aplicación visible dentro de la ventana (barra de herramientas) y en la barra de tareas (vía `iconphoto` + `iconname` + `StartupWMClass` en el `.desktop`).
+- Scripts de instalación y desinstalación para Linux (`scripts/install_linux.sh`, `scripts/uninstall_linux.sh`).
 - Soporte de imágenes inline: se renderizan como enlaces clickeables con el texto alternativo.
 - Soporte de tachado (`~~texto~~`): renderizado con estilo overstrike.
+
+### Changed
+
+- Tablas Markdown renderizadas como grid real (`ttk.Treeview`) con columnas alineadas, scroll horizontal funcional y ancho máximo de columna fijado a 480px.
+- Tablas: las celdas muestran el texto completo sin truncado; columnas redimensionables arrastrando la cabecera.
+- El `.desktop` del repo y el generado por el instalador incluyen `StartupWMClass=Lightmd` para emparejar la ventana con el icono en KDE.
+
+### Fixed
+
+- Scroll horizontal en tablas: ahora aparece correctamente cuando las columnas exceden el ancho visible de la ventana.
+
+### Internal
+
 - Refactorización del parser: arquitectura modular con registro de parseadores de bloques.
-- Tablas Markdown renderizadas como un grid real (`ttk.Treeview`) con columnas alineadas y celdas truncadas a 40 caracteres.
-- Tablas: el texto de las celdas se muestra completo (sin truncado); las columnas son redimensionables arrastrando la cabecera; ancho máximo de columna fijado a 480px con scroll horizontal.
-- Tablas: la última columna (p. ej. "Explicación") se renderiza sin tope de ancho, mostrando el texto completo; el resto mantiene 480px.
+- Carga segura del icono con `subsample` a ~64px (ventana) y ~28px (toolbar), protegida con `try/except tk.TclError`.
+- Eliminada llamada inexistente `wm class` que rompía el arranque en Tk 8.6; reemplazada por `iconname("lightmd")`.
+- Separación del parser Markdown a `src/lightmd/parser.py` para testeo sin Tkinter.

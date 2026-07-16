@@ -104,6 +104,7 @@ Terminal=false
 Type=Application
 Categories=Office;Utility;Viewer;
 MimeType=text/markdown;text/plain;
+StartupWMClass=Lightmd
 StartupNotify=true
 DESKTOP_EOF
 chmod 644 "$DESKTOP_FILE"

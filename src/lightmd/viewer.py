@@ -55,6 +55,24 @@ class MarkdownViewer(tk.Tk):
         self.title(APP_NAME)
         self.geometry(f"{DEFAULT_WIDTH}x{DEFAULT_HEIGHT}")
         self.minsize(650, 450)
+        self.iconname("lightmd")
+
+        self._app_icon: Optional[tk.PhotoImage] = None
+        self._toolbar_icon: Optional[tk.PhotoImage] = None
+        icon_path = Path(__file__).parent / "resources" / "lightmd.png"
+        if icon_path.exists():
+            try:
+                img = tk.PhotoImage(file=str(icon_path))
+                self._icon_source = img  # Evita que img se recolecte (las derivadas subsample dependen de la fuente)
+                # Window icon ~64px
+                factor = max(1, img.width() // 64)
+                self._app_icon = img.subsample(factor, factor)
+                self.iconphoto(True, self._app_icon)
+                # Toolbar icon ~28px
+                t_factor = max(1, img.width() // 28)
+                self._toolbar_icon = img.subsample(t_factor, t_factor)
+            except tk.TclError:
+                pass
 
         self._build_fonts()
         self._build_ui()
@@ -80,6 +98,9 @@ class MarkdownViewer(tk.Tk):
     def _build_ui(self) -> None:
         self.toolbar = ttk.Frame(self)
         self.toolbar.pack(fill="x", padx=8, pady=(8, 4))
+
+        if self._toolbar_icon:
+            tk.Label(self.toolbar, image=self._toolbar_icon).pack(side="left", padx=(0, 6))
 
         ttk.Button(self.toolbar, text="Abrir", command=self.open_file).pack(side="left")
         ttk.Button(self.toolbar, text="Recargar", command=self.reload_file).pack(side="left", padx=(6, 0))
@@ -353,30 +374,39 @@ class MarkdownViewer(tk.Tk):
             selectmode="none",
         )
 
-        # Hide the internal tree column so it doesn't show as blank on the left
         tree.column("#0", width=0, stretch=False)
 
+        total_width = 0
         for idx, col in enumerate(columns):
             tree.heading(col, text=header[idx])
             char_w = 8 if idx == 0 else 10
             max_len = max(len(c) for c in [header[idx]] + [r[idx] for r in data]) if data else len(header[idx])
-            is_last = idx == col_count - 1
-            width_px = _column_width(max_len, char_w, max_px=10_000 if is_last else MAX_COL_PX)
+            width_px = _column_width(max_len, char_w, max_px=MAX_COL_PX)
             tree.column(col, width=width_px, minwidth=char_w * 5, stretch=False)
+            total_width += width_px
 
         for row in data:
             tree.insert("", "end", values=row)
 
+        # Anclar el frame al ancho visible del Text para que el Treeview
+        # no se estire más allá de lo visible y el scroll horizontal funcione
+        text_width = self.text.winfo_width()
+        if text_width <= 1:
+            text_width = DEFAULT_WIDTH - 44
+        frame.config(width=max(total_width, text_width))
+
         hscroll = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
         tree.configure(xscrollcommand=hscroll.set)
 
-        tree.pack(fill="both", expand=True)
-        hscroll.pack(fill="x")
+        tree.grid(row=0, column=0, sticky="nsew")
+        hscroll.grid(row=1, column=0, sticky="ew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(0, weight=1)
 
         if data:
             vscroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
             tree.configure(yscrollcommand=vscroll.set)
-            vscroll.pack(side="right", fill="y")
+            vscroll.grid(row=0, column=1, sticky="ns")
 
         self.text.window_create("end", window=frame)
         self.text.insert("end", "\n\n")
