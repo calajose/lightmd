@@ -18,6 +18,20 @@ from typing import List, Optional
 from lightmd.parser import Block, InlineNode, parse_markdown
 
 
+def _cap_cell(text: str, max_chars: int = 40) -> str:
+    text = text.strip()
+    if len(text) > max_chars:
+        text = text[:max_chars - 1].rstrip() + "…"
+    return text
+
+
+MAX_COL_PX = 480
+
+
+def _column_width(max_len: int, char_w: int = 10, max_px: int = MAX_COL_PX) -> int:
+    return min(max(max_len * char_w, char_w * 5), max_px)
+
+
 APP_NAME = "LightMD Viewer"
 DEFAULT_WIDTH = 980
 DEFAULT_HEIGHT = 700
@@ -33,6 +47,10 @@ class MarkdownViewer(tk.Tk):
         self.link_targets: dict[str, str] = {}
         self.search_matches: list[tuple[str, str]] = []
         self.search_index = -1
+        self._table_widgets: List[ttk.Frame] = []
+
+        self._tree_style = ttk.Style(self)
+        self._tree_style.theme_use("clam")
 
         self.title(APP_NAME)
         self.geometry(f"{DEFAULT_WIDTH}x{DEFAULT_HEIGHT}")
@@ -57,6 +75,7 @@ class MarkdownViewer(tk.Tk):
         self.font_h4 = Font(family="Sans", size=13, weight="bold")
         self.font_code = Font(family="Monospace", size=10)
         self.font_link = Font(family="Sans", size=11, underline=True)
+        self.font_strikethrough = Font(family="Sans", size=11, overstrike=True)
 
     def _build_ui(self) -> None:
         self.toolbar = ttk.Frame(self)
@@ -180,9 +199,17 @@ class MarkdownViewer(tk.Tk):
             spacing3=4,
         )
         self.text.tag_configure("link", font=self.font_link, foreground=link_fg)
+        self.text.tag_configure("strikethrough", font=self.font_strikethrough, foreground=fg)
+        self.text.tag_configure("image", font=self.font_link, foreground=link_fg)
         self.text.tag_configure("hr", foreground=quote_fg, spacing1=8, spacing3=8)
         self.text.tag_configure("search", background="#ffd54f", foreground="#000000")
         self.text.tag_configure("search_current", background="#ff9800", foreground="#000000")
+
+        style = self._tree_style
+        style.configure("Treeview", background=bg, foreground=fg, fieldbackground=bg, borderwidth=0)
+        style.configure("Treeview.Heading", background=code_bg, foreground=fg, borderwidth=1)
+        style.map("Treeview", background=[("selected", select_bg)])
+        style.map("Treeview.Heading", background=[("active", code_bg)])
 
         if self.current_file:
             self.reload_file()
@@ -224,6 +251,12 @@ class MarkdownViewer(tk.Tk):
 
     def render_markdown(self, markdown: str) -> None:
         self.text.configure(state="normal")
+
+        # Destroy previously embedded table widgets
+        for w in self._table_widgets:
+            w.destroy()
+        self._table_widgets.clear()
+
         self.text.delete("1.0", "end")
         self.link_targets.clear()
         self.search_matches.clear()
@@ -263,6 +296,8 @@ class MarkdownViewer(tk.Tk):
             elif block.kind == "paragraph":
                 self._insert_inline(block.inline, "normal")
                 self.text.insert("end", "\n")
+            elif block.kind == "table":
+                self._insert_table(block)
             elif block.kind == "blank":
                 self.text.insert("end", "\n")
 
@@ -276,6 +311,8 @@ class MarkdownViewer(tk.Tk):
                 self.text.insert("end", node.content, (base_tag, "bold"))
             elif node.kind == "italic":
                 self.text.insert("end", node.content, (base_tag, "italic"))
+            elif node.kind == "strikethrough":
+                self.text.insert("end", node.content, (base_tag, "strikethrough"))
             elif node.kind == "code":
                 self.text.insert("end", node.content, "code")
             elif node.kind == "link":
@@ -285,6 +322,65 @@ class MarkdownViewer(tk.Tk):
                 self.text.tag_bind(tag_name, "<Button-1>", lambda _, t=node.target: self.open_link(t))
                 self.text.tag_bind(tag_name, "<Enter>", lambda _: self.text.configure(cursor="hand2"))
                 self.text.tag_bind(tag_name, "<Leave>", lambda _: self.text.configure(cursor="arrow"))
+            elif node.kind == "image":
+                tag_name = f"img_{len(self.link_targets)}"
+                self.link_targets[tag_name] = node.target
+                display = f"[{node.content}]" if node.content else "[img]"
+                self.text.insert("end", display, (base_tag, "image", tag_name))
+                self.text.tag_bind(tag_name, "<Button-1>", lambda _, t=node.target: self.open_link(t))
+                self.text.tag_bind(tag_name, "<Enter>", lambda _: self.text.configure(cursor="hand2"))
+                self.text.tag_bind(tag_name, "<Leave>", lambda _: self.text.configure(cursor="arrow"))
+
+    def _insert_table(self, block: Block) -> None:
+        if not block.table_data:
+            return
+
+        rows = block.table_data
+        header = [c.strip() for c in rows[0]]
+        data = [[c.strip() for c in row] for row in rows[1:]] if len(rows) > 1 else []
+
+        col_count = len(header)
+        columns = [f"col{i}" for i in range(col_count)]
+
+        frame = ttk.Frame(self.text)
+        vis_rows = min(len(data), 18) if data else 1
+
+        tree = ttk.Treeview(
+            frame,
+            columns=columns,
+            show="headings",
+            height=vis_rows,
+            selectmode="none",
+        )
+
+        # Hide the internal tree column so it doesn't show as blank on the left
+        tree.column("#0", width=0, stretch=False)
+
+        for idx, col in enumerate(columns):
+            tree.heading(col, text=header[idx])
+            char_w = 8 if idx == 0 else 10
+            max_len = max(len(c) for c in [header[idx]] + [r[idx] for r in data]) if data else len(header[idx])
+            is_last = idx == col_count - 1
+            width_px = _column_width(max_len, char_w, max_px=10_000 if is_last else MAX_COL_PX)
+            tree.column(col, width=width_px, minwidth=char_w * 5, stretch=False)
+
+        for row in data:
+            tree.insert("", "end", values=row)
+
+        hscroll = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
+        tree.configure(xscrollcommand=hscroll.set)
+
+        tree.pack(fill="both", expand=True)
+        hscroll.pack(fill="x")
+
+        if data:
+            vscroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=vscroll.set)
+            vscroll.pack(side="right", fill="y")
+
+        self.text.window_create("end", window=frame)
+        self.text.insert("end", "\n\n")
+        self._table_widgets.append(frame)
 
     def open_link(self, target: str) -> None:
         if target.startswith(("http://", "https://", "mailto:")):

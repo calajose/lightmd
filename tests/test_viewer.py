@@ -16,6 +16,7 @@ from lightmd.parser import (
     parse_inline,
     parse_markdown,
 )
+from lightmd.viewer import _cap_cell, _column_width, MAX_COL_PX
 
 
 # ── Import / version ─────────────────────────────────────────────
@@ -195,6 +196,24 @@ def test_parse_inline_multiple_tokens() -> None:
     ]
 
 
+def test_parse_inline_strikethrough() -> None:
+    assert parse_inline("~~tachado~~") == [InlineNode("strikethrough", "tachado")]
+
+
+def test_parse_inline_image() -> None:
+    assert parse_inline("![alt](url.png)") == [InlineNode("image", "alt", target="url.png")]
+
+
+def test_parse_inline_mixed_with_new() -> None:
+    result = parse_inline("text **bold** ~~tachado~~")
+    assert result == [
+        InlineNode("text", "text "),
+        InlineNode("bold", "bold"),
+        InlineNode("text", " "),
+        InlineNode("strikethrough", "tachado"),
+    ]
+
+
 def test_parse_inline_empty() -> None:
     assert parse_inline("") == []
 
@@ -330,6 +349,82 @@ def test_parse_mixed_document() -> None:
     assert blocks[3].kind == "blank"
     assert blocks[4].kind == "task"
     assert blocks[4].checked is False
+
+
+def test_parse_table() -> None:
+    md = "| A | B |\n|---|---|\n| 1 | 2 |"
+    blocks = parse_markdown(md)
+    assert len(blocks) == 1
+    assert blocks[0].kind == "table"
+    assert blocks[0].table_data == [["A", "B"], ["1", "2"]]
+
+
+def test_parse_table_without_separator() -> None:
+    md = "| Col1 | Col2 |\n| val1 | val2 |\n| val3 | val4 |"
+    blocks = parse_markdown(md)
+    assert len(blocks) == 1
+    assert blocks[0].kind == "table"
+    assert blocks[0].table_data == [["Col1", "Col2"], ["val1", "val2"], ["val3", "val4"]]
+
+
+def test_parse_table_single_row() -> None:
+    md = "| Header |\n| data |"
+    blocks = parse_markdown(md)
+    assert len(blocks) == 1
+    assert blocks[0].kind == "table"
+    assert blocks[0].table_data == [["Header"], ["data"]]
+
+
+def test_parse_table_pipe_in_list_is_not_table() -> None:
+    md = "- item | other"
+    blocks = parse_markdown(md)
+    assert blocks[0].kind != "table"
+
+
+# ── _cap_cell ─────────────────────────────────────────────────────
+
+def test_cap_cell_short() -> None:
+    assert _cap_cell("hola") == "hola"
+
+
+def test_cap_cell_exact() -> None:
+    assert _cap_cell("a" * 40) == "a" * 40
+
+
+def test_cap_cell_truncated() -> None:
+    result = _cap_cell("a" * 50)
+    assert len(result) == 40
+    assert result.endswith("…")
+
+
+def test_cap_cell_strips_whitespace() -> None:
+    assert _cap_cell("  hola  ") == "hola"
+
+
+def test_cap_cell_truncated_no_trailing_space() -> None:
+    result = _cap_cell("hello world" + "x" * 40)
+    assert result.endswith("…")
+    assert "  " not in result
+
+
+# ── _column_width ─────────────────────────────────────────────────
+
+def test_column_width_short() -> None:
+    assert _column_width(10, 10) == 100
+
+
+def test_column_width_hits_max() -> None:
+    assert _column_width(100, 10) == MAX_COL_PX
+
+
+def test_column_width_respects_minimum() -> None:
+    assert _column_width(1, 10) == 50
+
+
+def test_column_width_custom_max() -> None:
+    result = _column_width(100, 10, max_px=10_000)
+    assert result == 1000
+    assert result != MAX_COL_PX
 
 
 # ── CLI parser ────────────────────────────────────────────────────

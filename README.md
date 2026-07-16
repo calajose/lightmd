@@ -6,7 +6,8 @@ Visor Markdown ligero hecho con Python y Tkinter.
 
 - Apertura de archivos `.md`, `.markdown`, `.mdown`, `.mkd` y `.txt`.
 - Encabezados, listas (ordenadas y no ordenadas), tareas, citas y bloques de código.
-- Negrita, cursiva, código en línea y enlaces.
+- Negrita, cursiva, código en línea, enlaces, imágenes y tachado.
+- Tablas Markdown (renderizadas como grid con `ttk.Treeview`, columnas redimensionables, ancho máximo 480px, scroll horizontal).
 - Modo claro y oscuro (`Ctrl+D`).
 - Búsqueda con `Ctrl+F`.
 - Recarga con `F5`.
