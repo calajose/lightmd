@@ -122,20 +122,29 @@ class MarkdownViewer(tk.Tk):
         content = ttk.Frame(self)
         content.pack(fill="both", expand=True, padx=8, pady=(4, 8))
 
+        # Horizontal Scroll
+        h_scrollbar = ttk.Scrollbar(content, orient="horizontal")
+        h_scrollbar.pack(side="bottom", fill="x")
+
+        # Vertical Scroll
+        v_scrollbar = ttk.Scrollbar(content, orient="vertical")
+        v_scrollbar.pack(side="right", fill="y")
+
         self.text = tk.Text(
             content,
-            wrap="word",
+            wrap="none",
             padx=22,
             pady=18,
             relief="flat",
             undo=False,
             cursor="arrow",
+            xscrollcommand=h_scrollbar.set,
+            yscrollcommand=v_scrollbar.set,
         )
         self.text.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(content, orient="vertical", command=self.text.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.text.configure(yscrollcommand=scrollbar.set, state="disabled")
+        h_scrollbar.config(command=self.text.xview)
+        v_scrollbar.config(command=self.text.yview)
+        self.text.configure(state="disabled")
 
         self.status = ttk.Label(self, text="Listo", anchor="w")
         self.status.pack(fill="x", padx=8, pady=(0, 6))
@@ -283,14 +292,18 @@ class MarkdownViewer(tk.Tk):
         self.search_matches.clear()
         self.search_index = -1
 
+        current_code_block = None  # {'lang': str, 'lines': []}
+
         for block in parse_markdown(markdown):
             if block.kind == "code_open":
-                if block.code_language:
-                    self.text.insert("end", f"{block.code_language}\n", ("code", "bold"))
+                current_code_block = {"lang": block.code_language, "lines": []}
             elif block.kind == "code_line":
-                self.text.insert("end", block.text + "\n", "code")
+                if current_code_block is not None:
+                    current_code_block["lines"].append(block.text)
             elif block.kind == "code_close":
-                self.text.insert("end", "\n")
+                if current_code_block:
+                    self._insert_code_block(current_code_block)
+                    current_code_block = None
             elif block.kind == "hr":
                 self.text.insert("end", "─" * 64 + "\n", "hr")
             elif block.kind == "heading":
@@ -319,10 +332,38 @@ class MarkdownViewer(tk.Tk):
                 self.text.insert("end", "\n")
             elif block.kind == "table":
                 self._insert_table(block)
-            elif block.kind == "blank":
-                self.text.insert("end", "\n")
-
         self.text.configure(state="disabled")
+        self.text.update_idletasks()
+
+    def _insert_code_block(self, block_data: dict) -> None:
+        frame = ttk.Frame(self.text)
+        
+        # Label for language
+        if block_data['lang']:
+            ttk.Label(frame, text=block_data['lang'], font=self.font_bold).pack(anchor="w", padx=4)
+
+        # Code text area
+        text = tk.Text(
+            frame,
+            wrap="none",
+            font=self.font_code,
+            bg=self.text.cget("bg"),
+            fg=self.text.cget("fg"),
+            height=min(len(block_data['lines']), 20),
+            relief="flat"
+        )
+        text.insert("1.0", "\n".join(block_data['lines']))
+        text.configure(state="disabled")
+        text.pack(side="top", fill="x", expand=True)
+
+        # Horizontal Scroll
+        hscroll = ttk.Scrollbar(frame, orient="horizontal", command=text.xview)
+        text.configure(xscrollcommand=hscroll.set)
+        hscroll.pack(side="bottom", fill="x")
+
+        self.text.window_create("end", window=frame)
+        self.text.insert("end", "\n\n")
+        self._table_widgets.append(frame)
 
     def _insert_inline(self, nodes: List[InlineNode], base_tag: str = "normal") -> None:
         for node in nodes:
@@ -388,12 +429,9 @@ class MarkdownViewer(tk.Tk):
         for row in data:
             tree.insert("", "end", values=row)
 
-        # Anclar el frame al ancho visible del Text para que el Treeview
-        # no se estire más allá de lo visible y el scroll horizontal funcione
-        text_width = self.text.winfo_width()
-        if text_width <= 1:
-            text_width = DEFAULT_WIDTH - 44
-        frame.config(width=max(total_width, text_width))
+        # Asegurar que el frame tenga un ancho razonable
+        min_width = min(total_width, MAX_COL_PX * col_count)
+        frame.config(width=min_width)
 
         hscroll = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
         tree.configure(xscrollcommand=hscroll.set)
@@ -408,9 +446,12 @@ class MarkdownViewer(tk.Tk):
             tree.configure(yscrollcommand=vscroll.set)
             vscroll.grid(row=0, column=1, sticky="ns")
 
-        self.text.window_create("end", window=frame)
+        self.text.window_create("end", window=frame, stretch=1)
         self.text.insert("end", "\n\n")
         self._table_widgets.append(frame)
+        
+        # Forzar actualización de geometría para que el frame se renderice correctamente
+        frame.update_idletasks()
 
     def open_link(self, target: str) -> None:
         if target.startswith(("http://", "https://", "mailto:")):

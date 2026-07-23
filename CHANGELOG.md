@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-24
+
+### Fixed
+
+- Solucionado bloqueo del sistema gráfico al intentar renderizar tablas anchas (causado por un bucle recursivo de cálculo geométrico en `Text` widget con `wrap="word"` + `grid`).
+- Scroll horizontal funcional para todo el documento: el widget `Text` principal ahora permite desplazamiento horizontal sin causar inestabilidad.
+- Refactorización del layout principal para usar `pack` en lugar de `grid`, evitando colapsos del compositor de ventanas.
+- Mejora en el renderizado de bloques de código: ahora se aíslan en contenedores independientes para permitir scroll horizontal sin afectar al layout general.
+
+---
+
 ## [0.2.1] - 2026-07-16
 
 ### Added
