@@ -16,13 +16,21 @@ from lightmd.parser import (
     parse_inline,
     parse_markdown,
 )
-from lightmd.viewer import _cap_cell, _column_width, MAX_COL_PX
+from lightmd.viewer import (
+    _cap_cell,
+    _column_width,
+    _is_dark_linux,
+    _is_dark_macos,
+    _is_dark_windows,
+    detect_system_dark_mode,
+    MAX_COL_PX,
+)
 
 
 # ── Import / version ─────────────────────────────────────────────
 
 def test_version() -> None:
-    assert __version__ == "0.2.1"
+    assert __version__ == "0.3.1"
 
 
 # ── Regex de bloque ──────────────────────────────────────────────
@@ -433,3 +441,65 @@ def test_cli_version() -> None:
     from lightmd.cli import main
 
     assert main(["--version"]) == 0
+
+
+# ── Theme detection ───────────────────────────────────────────────
+
+def test_detect_system_dark_mode_type() -> None:
+    result = detect_system_dark_mode()
+    assert isinstance(result, bool)
+
+
+def test_is_dark_linux_env_var(monkeypatch) -> None:
+    monkeypatch.setenv("GTK_THEME", "Adwaita-dark")
+    assert _is_dark_linux() is True
+
+    monkeypatch.setenv("GTK_THEME", "Adwaita")
+    # If no gsettings or kdeglobals match, returns False
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: Exception("mock fail"))
+    assert _is_dark_linux() is False
+
+
+def test_is_dark_linux_gsettings(monkeypatch) -> None:
+    monkeypatch.delenv("GTK_THEME", raising=False)
+
+    class MockCompletedProcess:
+        returncode = 0
+        stdout = "'prefer-dark'\n"
+
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockCompletedProcess())
+    assert _is_dark_linux() is True
+
+
+def test_is_dark_windows(monkeypatch) -> None:
+    import sys
+    import types
+
+    mock_winreg = types.ModuleType("winreg")
+    mock_winreg.HKEY_CURRENT_USER = 1
+    mock_winreg.OpenKey = lambda *args: 100
+    mock_winreg.QueryValueEx = lambda key, val: (0, 1)  # 0 means dark mode
+    mock_winreg.CloseKey = lambda key: None
+
+    monkeypatch.setitem(sys.modules, "winreg", mock_winreg)
+    assert _is_dark_windows() is True
+
+    mock_winreg.QueryValueEx = lambda key, val: (1, 1)  # 1 means light mode
+    assert _is_dark_windows() is False
+
+
+def test_is_dark_macos(monkeypatch) -> None:
+    class MockCompletedProcess:
+        returncode = 0
+        stdout = "Dark\n"
+
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockCompletedProcess())
+    assert _is_dark_macos() is True
+
+    class MockLightProcess:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockLightProcess())
+    assert _is_dark_macos() is False
+

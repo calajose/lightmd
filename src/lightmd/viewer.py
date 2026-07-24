@@ -8,6 +8,9 @@ incluidos sistemas Linux de 32 bits.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tkinter as tk
 import webbrowser
 from pathlib import Path
@@ -37,13 +40,92 @@ DEFAULT_WIDTH = 980
 DEFAULT_HEIGHT = 700
 
 
+def _is_dark_windows() -> bool:
+    try:
+        import winreg  # type: ignore[import-not-found]
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        )
+        value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        winreg.CloseKey(key)
+        return value == 0
+    except Exception:
+        return False
+
+
+def _is_dark_macos() -> bool:
+    try:
+        res = subprocess.run(
+            ["defaults", "read", "-g", "AppleInterfaceStyle"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        return res.returncode == 0 and "dark" in res.stdout.lower()
+    except Exception:
+        return False
+
+
+def _is_dark_linux() -> bool:
+    gtk_theme = os.environ.get("GTK_THEME", "").lower()
+    if "dark" in gtk_theme:
+        return True
+
+    try:
+        res = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if res.returncode == 0 and "dark" in res.stdout.lower():
+            return True
+    except Exception:
+        pass
+
+    try:
+        res = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if res.returncode == 0 and "dark" in res.stdout.lower():
+            return True
+    except Exception:
+        pass
+
+    try:
+        kde_config = Path.home() / ".config" / "kdeglobals"
+        if kde_config.exists():
+            content = kde_config.read_text(encoding="utf-8", errors="ignore").lower()
+            for line in content.splitlines():
+                if ("colorscheme" in line or "lookandfeelpackage" in line) and "dark" in line:
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
+def detect_system_dark_mode() -> bool:
+    """Detecta si el sistema operativo está configurado en modo oscuro."""
+    if sys.platform == "win32":
+        return _is_dark_windows()
+    elif sys.platform == "darwin":
+        return _is_dark_macos()
+    else:
+        return _is_dark_linux()
+
+
 class MarkdownViewer(tk.Tk):
 
-    def __init__(self, initial_file: Optional[str] = None) -> None:
-        super().__init__()
+    def __init__(self, initial_file: Optional[str] = None, dark_mode: Optional[bool] = None) -> None:
+        super().__init__(className="LightMD")
 
         self.current_file: Optional[Path] = None
-        self.dark_mode = False
+        self.dark_mode = detect_system_dark_mode() if dark_mode is None else dark_mode
         self.link_targets: dict[str, str] = {}
         self.search_matches: list[tuple[str, str]] = []
         self.search_index = -1
@@ -55,19 +137,19 @@ class MarkdownViewer(tk.Tk):
         self.title(APP_NAME)
         self.geometry(f"{DEFAULT_WIDTH}x{DEFAULT_HEIGHT}")
         self.minsize(650, 450)
-        self.iconname("lightmd")
 
-        self._app_icon: Optional[tk.PhotoImage] = None
+        self._app_icons: list[tk.PhotoImage] = []
         self._toolbar_icon: Optional[tk.PhotoImage] = None
         icon_path = Path(__file__).parent / "resources" / "lightmd.png"
         if icon_path.exists():
             try:
                 img = tk.PhotoImage(file=str(icon_path))
-                self._icon_source = img  # Evita que img se recolecte (las derivadas subsample dependen de la fuente)
-                # Window icon ~64px
-                factor = max(1, img.width() // 64)
-                self._app_icon = img.subsample(factor, factor)
-                self.iconphoto(True, self._app_icon)
+                self._icon_source = img  # Evita que img se recolecte
+                s16 = img.subsample(max(1, img.width() // 16))
+                s32 = img.subsample(max(1, img.width() // 32))
+                s64 = img.subsample(max(1, img.width() // 64))
+                self._app_icons = [img, s64, s32, s16]
+                self.iconphoto(True, *self._app_icons)
                 # Toolbar icon ~28px
                 t_factor = max(1, img.width() // 28)
                 self._toolbar_icon = img.subsample(t_factor, t_factor)
@@ -104,7 +186,8 @@ class MarkdownViewer(tk.Tk):
 
         ttk.Button(self.toolbar, text="Abrir", command=self.open_file).pack(side="left")
         ttk.Button(self.toolbar, text="Recargar", command=self.reload_file).pack(side="left", padx=(6, 0))
-        ttk.Button(self.toolbar, text="Oscuro", command=self.toggle_theme).pack(side="left", padx=(6, 0))
+        self.theme_button = ttk.Button(self.toolbar, text="Oscuro", command=self.toggle_theme)
+        self.theme_button.pack(side="left", padx=(6, 0))
 
         self.file_label = ttk.Label(self.toolbar, text="Ningún archivo abierto")
         self.file_label.pack(side="left", padx=12)
@@ -240,6 +323,9 @@ class MarkdownViewer(tk.Tk):
         style.configure("Treeview.Heading", background=code_bg, foreground=fg, borderwidth=1)
         style.map("Treeview", background=[("selected", select_bg)])
         style.map("Treeview.Heading", background=[("active", code_bg)])
+
+        if hasattr(self, "theme_button"):
+            self.theme_button.configure(text="Claro" if self.dark_mode else "Oscuro")
 
         if self.current_file:
             self.reload_file()

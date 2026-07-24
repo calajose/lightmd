@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-24
+
+### Added
+
+- Detección automática del tema del sistema (oscuro/claro) al iniciar la aplicación en Linux, Windows y macOS.
+
+### Changed
+
+- El botón de cambio de tema en la barra de herramientas cambia dinámicamente su texto a "Claro" en modo oscuro y "Oscuro" en modo claro.
+
+
 ## [0.3.0] - 2026-07-24
 
 ### Fixed
