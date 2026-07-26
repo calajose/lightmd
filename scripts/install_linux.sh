@@ -103,9 +103,10 @@ Icon=$ICON_NAME
 Terminal=false
 Type=Application
 Categories=Office;Utility;Viewer;
-MimeType=text/markdown;text/plain;
+MimeType=text/markdown;
 StartupWMClass=Lightmd
 StartupNotify=true
+Keywords=markdown;md;text;editor;
 DESKTOP_EOF
 chmod 644 "$DESKTOP_FILE"
 info "Lanzador creado: $DESKTOP_FILE"
