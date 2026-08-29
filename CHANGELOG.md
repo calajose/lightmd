@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-30
+
+### Fixed
+
+- Cierre inesperado al abrir ficheros Markdown con tablas que contienen celdas vacías o filas con distinto número de columnas (`IndexError` en `_insert_table`).
+- Parser de tablas normaliza ahora el número de columnas de todas las filas para que coincidan con el encabezado.
+- Rendering defensivo en `_insert_table`: acceso seguro a datos de filas y `try-except` aislado para que un error en una tabla no cierre la aplicación.
+
+### Changed
+
+- Script de instalación (`scripts/install_linux.sh`): el archivo `.desktop` se instala siempre en `~/.local/share/applications/` (ruta estándar XDG) independientemente del valor de `XDG_DATA_HOME`.
+
 ## [0.3.1] - 2026-07-24
 
 ### Added

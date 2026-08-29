@@ -30,7 +30,7 @@ from lightmd.viewer import (
 # ── Import / version ─────────────────────────────────────────────
 
 def test_version() -> None:
-    assert __version__ == "0.3.1"
+    assert __version__ == "0.3.3"
 
 
 # ── Regex de bloque ──────────────────────────────────────────────
@@ -387,6 +387,31 @@ def test_parse_table_pipe_in_list_is_not_table() -> None:
     md = "- item | other"
     blocks = parse_markdown(md)
     assert blocks[0].kind != "table"
+
+
+def test_parse_table_empty_cells_normalized() -> None:
+    """Regression: rows with fewer columns than header must be padded."""
+    md = "| Option | Flag | Default |\n|---|---|---|\n| `--foo` | | `1.0` |"
+    blocks = parse_markdown(md)
+    assert len(blocks) == 1
+    assert blocks[0].kind == "table"
+    assert blocks[0].table_data[0] == ["Option", "Flag", "Default"]
+    assert blocks[0].table_data[1] == ["`--foo`", "", "`1.0`"]
+
+
+def test_parse_table_mixed_column_counts() -> None:
+    """Regression: rows with different column counts must be normalized."""
+    md = "| A | B | C |\n|---|---|---|\n| 1 | 2 |\n| 4 | 5 | 6 |"
+    blocks = parse_markdown(md)
+    assert len(blocks) == 1
+    assert blocks[0].kind == "table"
+    assert len(blocks[0].table_data[0]) == 3
+    assert len(blocks[0].table_data[1]) == 3
+    assert blocks[0].table_data[1] == ["1", "2", ""]
+    assert blocks[0].table_data[2] == ["4", "5", "6"]
+
+
+
 
 
 # ── _cap_cell ─────────────────────────────────────────────────────

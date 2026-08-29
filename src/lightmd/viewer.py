@@ -417,7 +417,10 @@ class MarkdownViewer(tk.Tk):
                 self._insert_inline(block.inline, "normal")
                 self.text.insert("end", "\n")
             elif block.kind == "table":
-                self._insert_table(block)
+                try:
+                    self._insert_table(block)
+                except Exception:
+                    pass
         self.text.configure(state="disabled")
         self.text.update_idletasks()
 
@@ -503,11 +506,21 @@ class MarkdownViewer(tk.Tk):
 
         tree.column("#0", width=0, stretch=False)
 
+        # Safe access to row data
         total_width = 0
         for idx, col in enumerate(columns):
             tree.heading(col, text=header[idx])
             char_w = 8 if idx == 0 else 10
-            max_len = max(len(c) for c in [header[idx]] + [r[idx] for r in data]) if data else len(header[idx])
+            
+            # Use a safe way to get cell data, defaulting to empty string
+            cell_data = []
+            for r in data:
+                if idx < len(r):
+                    cell_data.append(r[idx])
+                else:
+                    cell_data.append("")
+            
+            max_len = max([len(c) for c in [header[idx]] + cell_data])
             width_px = _column_width(max_len, char_w, max_px=MAX_COL_PX)
             tree.column(col, width=width_px, minwidth=char_w * 5, stretch=False)
             total_width += width_px

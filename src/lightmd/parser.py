@@ -172,11 +172,30 @@ def parse_table(lines: List[str], i: int) -> Optional[tuple[Block, int]]:
             j += 1
             continue
 
-        parts = [p.strip() for p in lines[j].split("|")]
-        row = [p for p in parts if p]
-        if row:
-            table_rows.append(row)
+        raw = lines[j].strip()
+        if raw.startswith("|"):
+            raw = raw[1:]
+        if raw.endswith("|"):
+            raw = raw[:-1]
+        
+        parts = [p.strip() for p in raw.split("|")]
+        while parts and parts[-1] == "":
+            parts.pop()
+        
+        if parts:
+            table_rows.append(parts)
         j += 1
+    
+    if not table_rows:
+        return None
+
+    # Normalize rows to match header length
+    col_count = len(table_rows[0])
+    for row in table_rows:
+        if len(row) < col_count:
+            row.extend([""] * (col_count - len(row)))
+        elif len(row) > col_count:
+            row[:] = row[:col_count]
 
     return Block(kind="table", table_data=table_rows), j
 
