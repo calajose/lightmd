@@ -24,13 +24,19 @@ from lightmd.viewer import (
     _is_dark_windows,
     detect_system_dark_mode,
     MAX_COL_PX,
+    MAX_TABLE_ROWS,
 )
 
 
 # ── Import / version ─────────────────────────────────────────────
 
 def test_version() -> None:
-    assert __version__ == "0.3.3"
+    assert __version__ == "0.3.4"
+
+
+def test_table_limits() -> None:
+    assert MAX_COL_PX == 480
+    assert MAX_TABLE_ROWS == 500
 
 
 # ── Regex de bloque ──────────────────────────────────────────────

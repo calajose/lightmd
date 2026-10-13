@@ -29,6 +29,7 @@ def _cap_cell(text: str, max_chars: int = 40) -> str:
 
 
 MAX_COL_PX = 480
+MAX_TABLE_ROWS = 500
 
 
 def _column_width(max_len: int, char_w: int = 10, max_px: int = MAX_COL_PX) -> int:
@@ -493,6 +494,12 @@ class MarkdownViewer(tk.Tk):
         col_count = len(header)
         columns = [f"col{i}" for i in range(col_count)]
 
+        # Truncar tablas gigantes para mantener la UI receptiva en máquinas modestas
+        if len(data) > MAX_TABLE_ROWS:
+            ocultas = len(data) - MAX_TABLE_ROWS
+            data = data[:MAX_TABLE_ROWS]
+            data.append(["… y %d filas más" % ocultas] + [""] * (col_count - 1))
+
         frame = ttk.Frame(self.text)
         vis_rows = min(len(data), 18) if data else 1
 
@@ -548,9 +555,6 @@ class MarkdownViewer(tk.Tk):
         self.text.window_create("end", window=frame, stretch=1)
         self.text.insert("end", "\n\n")
         self._table_widgets.append(frame)
-        
-        # Forzar actualización de geometría para que el frame se renderice correctamente
-        frame.update_idletasks()
 
     def open_link(self, target: str) -> None:
         if target.startswith(("http://", "https://", "mailto:")):

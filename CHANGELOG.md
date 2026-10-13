@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-13
+
+### Fixed
+
+- Posible bloqueo de la interfaz al renderizar tablas: eliminada la llamada `frame.update_idletasks()` dentro de `_insert_table`, que forzaba la negociación de geometría de Tk a mitad del renderizado (ingrediente clásico de los bucles de geometría del widget `Text` con ventanas embebidas).
+
+### Changed
+
+- Tablas con muchas filas: el número de filas insertadas en el `Treeview` se limita a 500 (`MAX_TABLE_ROWS`); las filas restantes se resumen en una fila final «… y N filas más». Mantiene la UI receptiva en máquinas modestas al abrir informes grandes.
+
+### Notes
+
+- Investigación del incidente del 2026-10-13 (congelación total del PC al abrir un informe de correo): los logs del kernel (`journalctl -b -1`) muestran un cuelgue de la GPU Intel i915 (timeouts de forcewake, fallo en el reset de GuC), no un bucle de la aplicación. La app se verificó con el mismo fichero: render estable (<0,2 s), RAM ~56 MB, CPU ~0 %.
+
 ## [0.3.3] - 2026-08-30
 
 ### Fixed
