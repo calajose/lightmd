@@ -19,24 +19,37 @@ from lightmd.parser import (
 from lightmd.viewer import (
     _cap_cell,
     _column_width,
+    _fit_cell,
     _is_dark_linux,
     _is_dark_macos,
     _is_dark_windows,
     detect_system_dark_mode,
+    format_table_as_text,
+    MAX_CELL_CHARS,
     MAX_COL_PX,
+    MAX_FILE_BYTES,
+    MAX_SEARCH_MATCHES,
     MAX_TABLE_ROWS,
+    RENDER_CHUNK_BLOCKS,
 )
 
 
 # ── Import / version ─────────────────────────────────────────────
 
 def test_version() -> None:
-    assert __version__ == "0.3.4"
+    assert __version__ == "0.4.0"
 
 
 def test_table_limits() -> None:
     assert MAX_COL_PX == 480
     assert MAX_TABLE_ROWS == 500
+
+
+def test_render_limits() -> None:
+    assert MAX_CELL_CHARS > 0
+    assert MAX_FILE_BYTES > 0
+    assert MAX_SEARCH_MATCHES > 0
+    assert 0 < RENDER_CHUNK_BLOCKS <= 1000
 
 
 # ── Regex de bloque ──────────────────────────────────────────────
@@ -466,12 +479,103 @@ def test_column_width_custom_max() -> None:
     assert result != MAX_COL_PX
 
 
+# ── _fit_cell ─────────────────────────────────────────────────────
+
+def test_fit_cell_pads_short_cell() -> None:
+    assert _fit_cell("ab", 4) == "ab  "
+
+
+def test_fit_cell_truncates_long_cell() -> None:
+    result = _fit_cell("a" * 20, 6)
+    assert len(result) == 6
+    assert result.endswith("…")
+
+
+# ── format_table_as_text ─────────────────────────────────────────
+
+def test_format_table_as_text_empty() -> None:
+    assert format_table_as_text([]) == []
+
+
+def test_format_table_as_text_alignment() -> None:
+    lines = format_table_as_text([["A", "B"], ["1", "22"]])
+    assert lines[0] == "A │ B "
+    assert lines[1] == "──┼───"
+    assert lines[2] == "1 │ 22"
+    assert len(lines) == 3
+
+
+def test_format_table_as_text_single_row() -> None:
+    assert format_table_as_text([["only"]]) == ["only", "────"]
+
+
+def test_format_table_as_text_pads_missing_cells() -> None:
+    lines = format_table_as_text([["A", "B", "C"], ["1"]])
+    assert lines[2].count("│") == 2
+    assert lines[2].startswith("1")
+
+
+def test_format_table_as_text_truncates_long_cells() -> None:
+    long_cell = "x" * (MAX_CELL_CHARS + 20)
+    lines = format_table_as_text([["h"], [long_cell]])
+    cell = lines[2].strip()
+    assert len(cell) == MAX_CELL_CHARS
+    assert cell.endswith("…")
+
+
+def test_format_table_as_text_limits_rows() -> None:
+    rows = [["h"]] + [["v%d" % index] for index in range(MAX_TABLE_ROWS + 5)]
+    lines = format_table_as_text(rows)
+    assert len(lines) == 2 + MAX_TABLE_ROWS + 1
+    assert lines[-1] == "… y 5 filas más"
+
+
+def test_format_table_as_text_is_plain_text() -> None:
+    lines = format_table_as_text([["A"], ["1"]])
+    assert all(isinstance(line, str) for line in lines)
+
+
 # ── CLI parser ────────────────────────────────────────────────────
 
 def test_cli_version() -> None:
     from lightmd.cli import main
 
     assert main(["--version"]) == 0
+
+
+def test_cli_diagnose(capsys) -> None:
+    from lightmd.cli import main
+
+    assert main(["--diagnose"]) == 0
+    assert "Kernel" in capsys.readouterr().out
+
+
+# ── Diagnóstico ───────────────────────────────────────────────────
+
+def test_state_dir_respects_xdg(monkeypatch, tmp_path) -> None:
+    from lightmd import diagnostics
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    assert diagnostics.state_dir() == tmp_path / "lightmd"
+    assert diagnostics.log_file() == tmp_path / "lightmd" / "lightmd.log"
+
+
+def test_append_entry_writes_log(monkeypatch, tmp_path) -> None:
+    from lightmd import diagnostics
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    assert diagnostics.append_entry("hola") is True
+    assert "hola" in diagnostics.log_file().read_text(encoding="utf-8")
+
+
+def test_system_report_contains_environment(monkeypatch, tmp_path) -> None:
+    from lightmd import diagnostics
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    report = diagnostics.system_report("0.4.0")
+    assert "lightmd 0.4.0" in report
+    assert "Kernel" in report
+    assert str(tmp_path / "lightmd") in report
 
 
 # ── Theme detection ───────────────────────────────────────────────

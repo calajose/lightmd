@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-17
+
+### Fixed
+
+- Congelación del sistema al abrir o recargar documentos con muchas tablas. Las tablas y los bloques de código se renderizan ahora como **texto alineado dentro del `Text` principal**: se eliminan las decenas de ventanas X hijas (`window_create` + `ttk.Treeview` + scrollbars) que generaban una ráfaga de `ConfigureNotify`/`Expose` a través de Xwayland y saturaban el motor gráfico.
+- El cambio de tema (claro/oscuro) ya no vuelve a renderizar el documento: solo reconfigura los tags del `Text`. Antes destruía y recreaba todas las ventanas embebidas en cada pulsación.
+- Fuga de fuentes Tcl: `_apply_theme()` creaba una `Font` nueva en cada llamada; ahora se reutiliza `font_italic`.
+
+### Added
+
+- `src/lightmd/diagnostics.py`: registro *best-effort* de fallos (`faulthandler`), volcado de trazas cuando el hilo principal se bloquea más de 5 s (watchdog con latido desde Tk) y métricas de render. Permite distinguir «la app está atascada» de «el sistema gráfico se ha colgado».
+- Log en `$XDG_STATE_HOME/lightmd/lightmd.log` (por defecto `~/.local/state/lightmd/lightmd.log`), con rotación a 1 MB.
+- Excepciones de callbacks Tk registradas en el log y mostradas en la barra de estado, en lugar de perderse en `stderr`.
+- Opciones de CLI: `--safe-render` (fuerza render en texto), `--grid-tables` (mantiene el `ttk.Treeview` experimental), `--diagnose` (informe del entorno y salida) y `--debug` (métricas de render).
+- Menú **Ayuda → Diagnóstico** con el informe del entorno.
+- Render troceado (`RENDER_CHUNK_BLOCKS = 200`) con `after_idle`: el bucle de eventos respira durante documentos grandes y un nuevo documento cancela el render en curso.
+
+### Changed
+
+- Tablas Markdown: se dibujan como texto monoespaciado alineado, con celdas truncadas a 40 caracteres (`MAX_CELL_CHARS`) y resumen «… y N filas más» a partir de 500 filas. Se pierden el grid interactivo y el scroll por tabla, pero también el tráfico gráfico que provocaba los bloqueos. `--grid-tables` permite recuperar el comportamiento anterior.
+- Bloques de código: sin `Text` interior ni scrollbar propia; usan el scroll horizontal del documento.
+- Líneas en blanco: se preservan al renderizar (antes se descartaban y los párrafos quedaban pegados).
+
+### Notes
+
+- Investigación del incidente del 2026-11-17 (congelación total al abrir un informe con tablas, con reinicio obligado): `journalctl -b -1 -k` muestra `GPU HANG: ecode 12:1:8796fff9, in Xwayland`, seguido de `GT0: Failed to reset GuC, ret = -110`, `device wedged, needs recovery` y fallos de asignación en `kwin_wayland`. Es un fallo del driver i915, no un bucle de Python: el parser tarda 1,2 s con 2 MB y 160 000 líneas. La app era el detonante por la carga gráfica que generaba, y eso es lo que se corrige aquí. El fallo del driver debe reportarse upstream.
+
 ## [0.3.4] - 2026-10-13
 
 ### Fixed

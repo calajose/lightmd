@@ -9,15 +9,20 @@ incluidos sistemas Linux de 32 bits.
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import sys
+import time
 import tkinter as tk
+import traceback
 import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.font import Font
-from typing import List, Optional
+from typing import Dict, List, Optional
 
+from lightmd import diagnostics
+from lightmd.diagnostics import Diagnostics
 from lightmd.parser import Block, InlineNode, parse_markdown
 
 
@@ -30,10 +35,62 @@ def _cap_cell(text: str, max_chars: int = 40) -> str:
 
 MAX_COL_PX = 480
 MAX_TABLE_ROWS = 500
+MAX_CELL_CHARS = 40
+MAX_FILE_BYTES = 8 * 1000 * 1000
+RENDER_CHUNK_BLOCKS = 200
+MAX_SEARCH_MATCHES = 2000
 
 
 def _column_width(max_len: int, char_w: int = 10, max_px: int = MAX_COL_PX) -> int:
     return min(max(max_len * char_w, char_w * 5), max_px)
+
+
+def _fit_cell(text: str, width: int) -> str:
+    return _cap_cell(text, width).ljust(width)
+
+
+def _format_row(cells: List[str], widths: List[int]) -> str:
+    parts = []
+    for index, width in enumerate(widths):
+        cell = cells[index] if index < len(cells) else ""
+        parts.append(_fit_cell(cell, width))
+    return " │ ".join(parts)
+
+
+def format_table_as_text(
+    rows: List[List[str]], max_cell_chars: int = MAX_CELL_CHARS
+) -> List[str]:
+    """Convierte las filas de una tabla Markdown en líneas alineadas de texto.
+
+    No crea ningún widget: elimina las ventanas X hijas dentro del ``Text``,
+    que eran el origen del tráfico gráfico desmedido en Xwayland.
+    """
+    if not rows:
+        return []
+
+    header = [cell.strip() for cell in rows[0]]
+    body = [[cell.strip() for cell in row] for row in rows[1:]]
+
+    hidden_rows = 0
+    if len(body) > MAX_TABLE_ROWS:
+        hidden_rows = len(body) - MAX_TABLE_ROWS
+        body = body[:MAX_TABLE_ROWS]
+
+    widths = []
+    for index in range(len(header)):
+        cells = [header[index]] + [row[index] for row in body if index < len(row)]
+        longest = max(len(cell) for cell in cells)
+        widths.append(max(1, min(longest, max_cell_chars)))
+
+    lines = [
+        _format_row(header, widths),
+        "─┼─".join("─" * width for width in widths),
+    ]
+    for row in body:
+        lines.append(_format_row(row, widths))
+    if hidden_rows:
+        lines.append("… y %d filas más" % hidden_rows)
+    return lines
 
 
 APP_NAME = "LightMD Viewer"
@@ -122,15 +179,30 @@ def detect_system_dark_mode() -> bool:
 
 class MarkdownViewer(tk.Tk):
 
-    def __init__(self, initial_file: Optional[str] = None, dark_mode: Optional[bool] = None) -> None:
+    def __init__(
+        self,
+        initial_file: Optional[str] = None,
+        dark_mode: Optional[bool] = None,
+        safe_render: bool = False,
+        grid_tables: bool = False,
+        debug: bool = False,
+    ) -> None:
         super().__init__(className="LightMD")
 
         self.current_file: Optional[Path] = None
         self.dark_mode = detect_system_dark_mode() if dark_mode is None else dark_mode
-        self.link_targets: dict[str, str] = {}
-        self.search_matches: list[tuple[str, str]] = []
+        self.link_targets: Dict[str, str] = {}
+        self.search_matches: List[tuple] = []
         self.search_index = -1
+        self.search_truncated = False
+        self.use_grid_tables = grid_tables and not safe_render
         self._table_widgets: List[ttk.Frame] = []
+        self._render_generation = 0
+        self._render_status = "Listo"
+        self._render_started = 0.0
+        self._pending_code_block: Optional[dict] = None
+        self._closing = False
+        self._diagnostics = Diagnostics(metrics=debug)
 
         self._tree_style = ttk.Style(self)
         self._tree_style.theme_use("clam")
@@ -163,13 +235,37 @@ class MarkdownViewer(tk.Tk):
         self._bind_shortcuts()
         self._apply_theme()
 
+        self._diagnostics.start()
+        self._schedule_heartbeat()
+
         if initial_file:
             self.open_path(Path(initial_file))
+
+    def destroy(self) -> None:
+        self._closing = True
+        try:
+            self._diagnostics.stop()
+        except Exception:
+            pass
+        super().destroy()
+
+    def report_callback_exception(self, exc, val, tb) -> None:
+        """Registra excepciones de callbacks Tk que antes solo iban a stderr."""
+        diagnostics.append_entry(
+            "Excepción en callback Tk:\n" + "".join(traceback.format_exception(exc, val, tb))
+        )
+        if hasattr(self, "status"):
+            self.status.configure(text="Error interno: %s" % val)
+
+    def _schedule_heartbeat(self) -> None:
+        self._diagnostics.beat()
+        self.after(diagnostics.HEARTBEAT_INTERVAL_MS, self._schedule_heartbeat)
 
     def _build_fonts(self) -> None:
         base = Font(family="Sans", size=11)
         self.font_normal = base
         self.font_bold = Font(family="Sans", size=11, weight="bold")
+        self.font_italic = Font(family="Sans", size=11, slant="italic")
         self.font_h1 = Font(family="Sans", size=22, weight="bold")
         self.font_h2 = Font(family="Sans", size=18, weight="bold")
         self.font_h3 = Font(family="Sans", size=15, weight="bold")
@@ -230,6 +326,10 @@ class MarkdownViewer(tk.Tk):
         v_scrollbar.config(command=self.text.yview)
         self.text.configure(state="disabled")
 
+        for tag in ("link", "image"):
+            self.text.tag_bind(tag, "<Enter>", lambda _: self.text.configure(cursor="hand2"))
+            self.text.tag_bind(tag, "<Leave>", lambda _: self.text.configure(cursor="arrow"))
+
         self.status = ttk.Label(self, text="Listo", anchor="w")
         self.status.pack(fill="x", padx=8, pady=(0, 6))
 
@@ -250,6 +350,7 @@ class MarkdownViewer(tk.Tk):
 
         help_menu = tk.Menu(menubar, tearoff=False)
         help_menu.add_command(label="Acerca de", command=self.show_about)
+        help_menu.add_command(label="Diagnóstico", command=self.show_diagnostics)
         menubar.add_cascade(label="Ayuda", menu=help_menu)
 
         self.config(menu=menubar)
@@ -288,7 +389,7 @@ class MarkdownViewer(tk.Tk):
 
         self.text.tag_configure("normal", font=self.font_normal, foreground=fg, spacing1=2, spacing3=2)
         self.text.tag_configure("bold", font=self.font_bold, foreground=fg)
-        self.text.tag_configure("italic", font=Font(family="Sans", size=11, slant="italic"), foreground=fg)
+        self.text.tag_configure("italic", font=self.font_italic, foreground=fg)
         self.text.tag_configure("h1", font=self.font_h1, foreground=fg, spacing1=18, spacing3=10)
         self.text.tag_configure("h2", font=self.font_h2, foreground=fg, spacing1=16, spacing3=8)
         self.text.tag_configure("h3", font=self.font_h3, foreground=fg, spacing1=14, spacing3=6)
@@ -315,6 +416,16 @@ class MarkdownViewer(tk.Tk):
         self.text.tag_configure("link", font=self.font_link, foreground=link_fg)
         self.text.tag_configure("strikethrough", font=self.font_strikethrough, foreground=fg)
         self.text.tag_configure("image", font=self.font_link, foreground=link_fg)
+        self.text.tag_configure(
+            "table",
+            font=self.font_code,
+            foreground=fg,
+            lmargin1=12,
+            lmargin2=12,
+            spacing1=2,
+            spacing3=2,
+        )
+        self.text.tag_configure("code_lang", font=self.font_bold, foreground=quote_fg, lmargin1=18)
         self.text.tag_configure("hr", foreground=quote_fg, spacing1=8, spacing3=8)
         self.text.tag_configure("search", background="#ffd54f", foreground="#000000")
         self.text.tag_configure("search_current", background="#ff9800", foreground="#000000")
@@ -327,9 +438,6 @@ class MarkdownViewer(tk.Tk):
 
         if hasattr(self, "theme_button"):
             self.theme_button.configure(text="Claro" if self.dark_mode else "Oscuro")
-
-        if self.current_file:
-            self.reload_file()
 
     def open_file(self) -> None:
         filename = filedialog.askopenfilename(
@@ -345,6 +453,27 @@ class MarkdownViewer(tk.Tk):
 
     def open_path(self, path: Path) -> None:
         try:
+            file_stat = path.stat()
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, f"No se pudo abrir el archivo:\n{exc}")
+            return
+
+        if not stat.S_ISREG(file_stat.st_mode):
+            messagebox.showerror(APP_NAME, f"No es un archivo regular:\n{path}")
+            return
+
+        if file_stat.st_size > MAX_FILE_BYTES:
+            confirmed = messagebox.askyesno(
+                APP_NAME,
+                "El archivo ocupa %.1f MB.\n\n"
+                "Los documentos muy grandes pueden tardar en mostrarse.\n"
+                "¿Abrirlo igualmente?" % (file_stat.st_size / 1_000_000),
+            )
+            if not confirmed:
+                self.status.configure(text="Apertura cancelada")
+                return
+
+        try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             try:
@@ -359,101 +488,123 @@ class MarkdownViewer(tk.Tk):
         self.current_file = path
         self.file_label.configure(text=path.name)
         self.title(f"{path.name} — {APP_NAME}")
-        self.render_markdown(content)
-        self.status.configure(text=str(path))
+        self.render_markdown(content, status_text=str(path))
 
     def reload_file(self) -> None:
         if self.current_file:
             self.open_path(self.current_file)
 
-    def render_markdown(self, markdown: str) -> None:
+    def render_markdown(self, markdown: str, status_text: Optional[str] = None) -> None:
+        blocks = parse_markdown(markdown)
+        table_count = sum(1 for block in blocks if block.kind == "table")
+
+        self._render_generation += 1
+        generation = self._render_generation
+        self._render_status = status_text or "Listo"
+        self._render_started = time.monotonic()
+        self._pending_code_block = None
+
         self.text.configure(state="normal")
 
-        # Destroy previously embedded table widgets
-        for w in self._table_widgets:
-            w.destroy()
+        for widget in self._table_widgets:
+            widget.destroy()
         self._table_widgets.clear()
 
         self.text.delete("1.0", "end")
         self.link_targets.clear()
         self.search_matches.clear()
         self.search_index = -1
+        self.search_truncated = False
 
-        current_code_block = None  # {'lang': str, 'lines': []}
+        self._diagnostics.record(
+            "render %.2f MB, %d bloques, %d tablas, modo %s"
+            % (
+                len(markdown) / 1_000_000,
+                len(blocks),
+                table_count,
+                "grid" if self.use_grid_tables else "texto",
+            )
+        )
 
-        for block in parse_markdown(markdown):
-            if block.kind == "code_open":
-                current_code_block = {"lang": block.code_language, "lines": []}
-            elif block.kind == "code_line":
-                if current_code_block is not None:
-                    current_code_block["lines"].append(block.text)
-            elif block.kind == "code_close":
-                if current_code_block:
-                    self._insert_code_block(current_code_block)
-                    current_code_block = None
-            elif block.kind == "hr":
-                self.text.insert("end", "─" * 64 + "\n", "hr")
-            elif block.kind == "heading":
-                tag = "h1" if block.level == 1 else "h2" if block.level == 2 else "h3" if block.level == 3 else "h4"
-                self._insert_inline(block.inline, tag)
-                self.text.insert("end", "\n")
-            elif block.kind == "quote":
-                self.text.insert("end", "│ ", "quote")
-                self._insert_inline(block.inline, "quote")
-                self.text.insert("end", "\n")
-            elif block.kind == "task":
-                mark = "☑" if block.checked else "☐"
-                self.text.insert("end", f"{mark} ", "normal")
-                self._insert_inline(block.inline, "normal")
-                self.text.insert("end", "\n")
-            elif block.kind == "unordered":
-                self.text.insert("end", "  " * block.level + "• ", "normal")
-                self._insert_inline(block.inline, "normal")
-                self.text.insert("end", "\n")
-            elif block.kind == "ordered":
-                self.text.insert("end", "  " * block.level + block.ordered_index + ". ", "normal")
-                self._insert_inline(block.inline, "normal")
-                self.text.insert("end", "\n")
-            elif block.kind == "paragraph":
-                self._insert_inline(block.inline, "normal")
-                self.text.insert("end", "\n")
-            elif block.kind == "table":
-                try:
-                    self._insert_table(block)
-                except Exception:
-                    pass
+        self._render_chunk(blocks, 0, generation)
+
+    def _render_chunk(self, blocks: List[Block], start: int, generation: int) -> None:
+        if self._closing or generation != self._render_generation:
+            return
+
+        end = min(start + RENDER_CHUNK_BLOCKS, len(blocks))
+        for block in blocks[start:end]:
+            self._render_block(block)
+
+        if end < len(blocks):
+            percent = end * 100 // len(blocks)
+            self.status.configure(text="Renderizando… %d%%" % percent)
+            self.after_idle(lambda: self._render_chunk(blocks, end, generation))
+            return
+
+        if self._pending_code_block is not None:
+            self._insert_code_block(self._pending_code_block)
+            self._pending_code_block = None
+
         self.text.configure(state="disabled")
-        self.text.update_idletasks()
+        self.status.configure(text=self._render_status)
+        self._diagnostics.record(
+            "render completado en %.2fs (%d bloques)"
+            % (time.monotonic() - self._render_started, len(blocks))
+        )
+
+    def _render_block(self, block: Block) -> None:
+        if block.kind == "code_open":
+            self._pending_code_block = {"lang": block.code_language, "lines": []}
+        elif block.kind == "code_line":
+            if self._pending_code_block is not None:
+                self._pending_code_block["lines"].append(block.text)
+        elif block.kind == "code_close":
+            if self._pending_code_block is not None:
+                self._insert_code_block(self._pending_code_block)
+                self._pending_code_block = None
+        elif block.kind == "blank":
+            self.text.insert("end", "\n")
+        elif block.kind == "hr":
+            self.text.insert("end", "─" * 64 + "\n", "hr")
+        elif block.kind == "heading":
+            tag = "h1" if block.level == 1 else "h2" if block.level == 2 else "h3" if block.level == 3 else "h4"
+            self._insert_inline(block.inline, tag)
+            self.text.insert("end", "\n")
+        elif block.kind == "quote":
+            self.text.insert("end", "│ ", "quote")
+            self._insert_inline(block.inline, "quote")
+            self.text.insert("end", "\n")
+        elif block.kind == "task":
+            mark = "☑" if block.checked else "☐"
+            self.text.insert("end", f"{mark} ", "normal")
+            self._insert_inline(block.inline, "normal")
+            self.text.insert("end", "\n")
+        elif block.kind == "unordered":
+            self.text.insert("end", "  " * block.level + "• ", "normal")
+            self._insert_inline(block.inline, "normal")
+            self.text.insert("end", "\n")
+        elif block.kind == "ordered":
+            self.text.insert("end", "  " * block.level + block.ordered_index + ". ", "normal")
+            self._insert_inline(block.inline, "normal")
+            self.text.insert("end", "\n")
+        elif block.kind == "paragraph":
+            self._insert_inline(block.inline, "normal")
+            self.text.insert("end", "\n")
+        elif block.kind == "table":
+            self._insert_table(block)
 
     def _insert_code_block(self, block_data: dict) -> None:
-        frame = ttk.Frame(self.text)
-        
-        # Label for language
-        if block_data['lang']:
-            ttk.Label(frame, text=block_data['lang'], font=self.font_bold).pack(anchor="w", padx=4)
+        language = block_data["lang"]
+        if language:
+            self.text.insert("end", language + "\n", "code_lang")
 
-        # Code text area
-        text = tk.Text(
-            frame,
-            wrap="none",
-            font=self.font_code,
-            bg=self.text.cget("bg"),
-            fg=self.text.cget("fg"),
-            height=min(len(block_data['lines']), 20),
-            relief="flat"
-        )
-        text.insert("1.0", "\n".join(block_data['lines']))
-        text.configure(state="disabled")
-        text.pack(side="top", fill="x", expand=True)
-
-        # Horizontal Scroll
-        hscroll = ttk.Scrollbar(frame, orient="horizontal", command=text.xview)
-        text.configure(xscrollcommand=hscroll.set)
-        hscroll.pack(side="bottom", fill="x")
-
-        self.text.window_create("end", window=frame)
-        self.text.insert("end", "\n\n")
-        self._table_widgets.append(frame)
+        lines = block_data["lines"]
+        if lines:
+            self.text.insert("end", "\n".join(lines) + "\n", "code")
+        else:
+            self.text.insert("end", "\n", "code")
+        self.text.insert("end", "\n")
 
     def _insert_inline(self, nodes: List[InlineNode], base_tag: str = "normal") -> None:
         for node in nodes:
@@ -472,21 +623,33 @@ class MarkdownViewer(tk.Tk):
                 self.link_targets[tag_name] = node.target
                 self.text.insert("end", node.content, (base_tag, "link", tag_name))
                 self.text.tag_bind(tag_name, "<Button-1>", lambda _, t=node.target: self.open_link(t))
-                self.text.tag_bind(tag_name, "<Enter>", lambda _: self.text.configure(cursor="hand2"))
-                self.text.tag_bind(tag_name, "<Leave>", lambda _: self.text.configure(cursor="arrow"))
             elif node.kind == "image":
                 tag_name = f"img_{len(self.link_targets)}"
                 self.link_targets[tag_name] = node.target
                 display = f"[{node.content}]" if node.content else "[img]"
                 self.text.insert("end", display, (base_tag, "image", tag_name))
                 self.text.tag_bind(tag_name, "<Button-1>", lambda _, t=node.target: self.open_link(t))
-                self.text.tag_bind(tag_name, "<Enter>", lambda _: self.text.configure(cursor="hand2"))
-                self.text.tag_bind(tag_name, "<Leave>", lambda _: self.text.configure(cursor="arrow"))
 
     def _insert_table(self, block: Block) -> None:
         if not block.table_data:
             return
 
+        if self.use_grid_tables:
+            try:
+                self._insert_table_grid(block)
+                return
+            except Exception as exc:
+                diagnostics.append_entry("Tabla degradada a texto por error de grid: %s" % exc)
+
+        lines = format_table_as_text(block.table_data)
+        if not lines:
+            return
+
+        for line in lines:
+            self.text.insert("end", line + "\n", "table")
+        self.text.insert("end", "\n")
+
+    def _insert_table_grid(self, block: Block) -> None:
         rows = block.table_data
         header = [c.strip() for c in rows[0]]
         data = [[c.strip() for c in row] for row in rows[1:]] if len(rows) > 1 else []
@@ -598,6 +761,7 @@ class MarkdownViewer(tk.Tk):
         query = self.search_entry.get().strip()
         self.search_matches.clear()
         self.search_index = -1
+        self.search_truncated = False
 
         self.text.configure(state="normal")
         self.text.tag_remove("search", "1.0", "end")
@@ -613,6 +777,9 @@ class MarkdownViewer(tk.Tk):
                 self.search_matches.append((pos, end))
                 self.text.tag_add("search", pos, end)
                 start = end
+                if len(self.search_matches) >= MAX_SEARCH_MATCHES:
+                    self.search_truncated = True
+                    break
 
         self.text.configure(state="disabled")
 
@@ -657,9 +824,18 @@ class MarkdownViewer(tk.Tk):
         self.text.see(start)
         self.text.configure(state="disabled")
 
+        suffix = " (máximo alcanzado)" if self.search_truncated else ""
         self.status.configure(
-            text=f"Coincidencia {self.search_index + 1} de {len(self.search_matches)}"
+            text="Coincidencia %d de %d%s"
+            % (self.search_index + 1, len(self.search_matches), suffix)
         )
+
+    def show_diagnostics(self) -> None:
+        from lightmd import __version__
+
+        report = diagnostics.system_report(__version__)
+        diagnostics.append_entry("diagnóstico solicitado por el usuario")
+        messagebox.showinfo("Diagnóstico de %s" % APP_NAME, report)
 
     def show_about(self) -> None:
         messagebox.showinfo(

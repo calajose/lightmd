@@ -46,6 +46,7 @@ lightmd/
 │   ├── cli.py              # entry point de consola (argparse)
 │   ├── viewer.py           # GUI Tkinter + render Markdown actual
 │   ├── parser.py           # parseo Markdown puro y testeable
+│   ├── diagnostics.py      # log de fallos, watchdog y métricas de render
 │   └── resources/
 │       ├── lightmd.desktop # lanzador .desktop empaquetado
 │       └── lightmd.png     # icono de la aplicación
@@ -75,11 +76,24 @@ lightmd/
 - Clase `MarkdownViewer(tk.Tk)`: ventana, menús, atajos, temas, barra de
   búsqueda.
 - **Contiene hoy también la lógica de render Markdown**:
-  `render_markdown()`, `_insert_inline()`, y las constantes de regex
-  (`RE_HR`, `RE_HEADING`, `RE_QUOTE`, `RE_TASK`, `RE_UNORDERED`,
-  `RE_ORDERED`, `RE_TOKEN`) como atributos de clase.
-- La prioridad a futuro es extraer el parseo a `parser.py` para que sea
-  testeable sin Tkinter.
+  `render_markdown()`, `_render_block()`, `_render_chunk()`,
+  `_insert_inline()`, y las constantes de límites (`MAX_COL_PX`,
+  `MAX_TABLE_ROWS`, `MAX_CELL_CHARS`, `MAX_FILE_BYTES`,
+  `RENDER_CHUNK_BLOCKS`, `MAX_SEARCH_MATCHES`).
+- **Regla de diseño:** el documento se renderiza como texto en un único
+  `Text`. No crear ventanas X embebidas (`window_create`) salvo en el
+  modo opt-in `--grid-tables`: fueron la causa de las congelaciones por
+  saturación gráfica en Xwayland.
+- El render es troceado con `after_idle` y un contador de generación
+  que cancela renders antiguos.
+
+### `diagnostics.py`
+- Módulo de diagnóstico, solo biblioteca estándar, sin Tkinter.
+- `Diagnostics`: `faulthandler` para fallos, watchdog con latido del
+  hilo principal (volcado de trazas si se bloquea >5 s) y métricas de
+  render opcionales (`--debug`).
+- `append_entry()`, `log_file()`, `state_dir()` y `system_report()`.
+- Todo el registro es *best-effort*: nunca debe romper la aplicación.
 
 ### `parser.py`
 - Módulo de parseo Markdown puro, sin dependencia de Tkinter.
@@ -150,4 +164,4 @@ lightmd/
 
 ---
 
-Última actualización: 2026-07-15
+Última actualización: 2026-11-17
